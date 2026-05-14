@@ -14,6 +14,38 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    isAdmin: {
+      type: Boolean,
+      default: false,
+    },
+    isApproved: {
+      type: Boolean,
+      default: false,
+    },
+    approvedAt: {
+      type: Date,
+      default: null,
+    },
+    approvedByUserId: {
+      type: String,
+      default: null,
+    },
+    activeAuthTokenId: {
+      type: String,
+      default: null,
+    },
+    authSessionExpiresAt: {
+      type: Date,
+      default: null,
+    },
+    activeSessionId: {
+      type: String,
+      default: null,
+    },
+    sessionStartTime: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
