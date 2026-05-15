@@ -36,12 +36,21 @@ if (!process.env.ALLOWED_ORIGINS) {
 // Security middleware
 app.use(helmet());
 
-// CORS configuration
+// CORS configuration (allow all headers and log for debugging)
 const corsOptions = {
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    const allowed = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000').split(',');
+    if (!origin || allowed.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`Blocked CORS request from: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-requested-with', 'Accept', 'Origin'],
+  exposedHeaders: ['Content-Type', 'Authorization'],
   maxAge: 86400,
 };
 app.use(cors(corsOptions));
