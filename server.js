@@ -69,6 +69,7 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.method === 'OPTIONS',
 });
 app.use(limiter);
 
@@ -78,6 +79,7 @@ const authLimiter = rateLimit({
   max: 10, // Only 10 requests per 15 minutes for auth
   skipSuccessfulRequests: true,
   message: 'Too many authentication attempts, please try again later.',
+  skip: (req) => req.method === 'OPTIONS',
 });
 
 app.get('/health', (_, res) => {
