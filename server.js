@@ -13,16 +13,24 @@ const app = express();
 const port = process.env.PORT || 4000;
 const nodeEnv = process.env.NODE_ENV || 'development';
 
+
 // Validate environment variables
-const requiredEnvVars = ['MONGODB_URI', 'JWT_SECRET'];
+const requiredEnvVars = ['MONGODB_URI', 'JWT_SECRET', 'ADMIN_API_KEY', 'ALLOWED_ORIGINS'];
 const missingVars = requiredEnvVars.filter((v) => !process.env[v]);
 if (missingVars.length > 0) {
-  throw new Error(`Missing required env vars: ${missingVars.join(', ')}`);
+  console.error(`\n✗ Missing required env vars: ${missingVars.join(', ')}`);
+  process.exit(1);
 }
 
 // JWT_SECRET should be at least 32 characters
 if (process.env.JWT_SECRET.length < 32) {
   console.warn('Warning: JWT_SECRET is too short. Use at least 32 characters.');
+}
+if (process.env.ADMIN_API_KEY.length < 12) {
+  console.warn('Warning: ADMIN_API_KEY is too short. Use at least 12 characters.');
+}
+if (!process.env.ALLOWED_ORIGINS) {
+  console.warn('Warning: ALLOWED_ORIGINS is not set. Defaulting to http://localhost:3000');
 }
 
 // Security middleware
@@ -77,18 +85,32 @@ app.use((_, res) => {
 // Error handler (must be last)
 app.use(errorHandler);
 
+async function connectWithRetry(retries = 5, delay = 3000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await mongoose.connect(process.env.MONGODB_URI, {
+        retryWrites: true,
+        w: 'majority',
+      });
+      console.log('Connected to MongoDB');
+      return;
+    } catch (error) {
+      console.error(`\n✗ MongoDB connection failed (attempt ${i + 1}/${retries}):`, error.message);
+      if (i < retries - 1) {
+        console.log(`Retrying in ${delay / 1000} seconds...`);
+        await new Promise((res) => setTimeout(res, delay));
+      } else {
+        console.error('✗ Could not connect to MongoDB after multiple attempts. Exiting.');
+        process.exit(1);
+      }
+    }
+  }
+}
+
 async function start() {
   let server;
-  
+  await connectWithRetry();
   try {
-    // Connect to MongoDB
-    await mongoose.connect(process.env.MONGODB_URI, {
-      retryWrites: true,
-      w: 'majority',
-    });
-    console.log('Connected to MongoDB');
-
-    // Start server
     server = app.listen(port, () => {
       console.log(`\n✓ Auth server running on port ${port} [${nodeEnv}]`);
     });
@@ -116,5 +138,15 @@ async function start() {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
+
+// Global error handlers
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Optionally exit: process.exit(1);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception thrown:', err);
+  process.exit(1);
+});
 
 start();

@@ -1,3 +1,48 @@
+const express = require('express');
+const router = express.Router();
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+const { validateInput } = require('../utils/validation');
+const { verifyToken, verifyApiKey } = require('../middleware');
+const crypto = require('crypto');
+
+// ...existing code...
+
+const adminUserIds = new Set(
+  (process.env.ADMIN_USER_IDS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+);
+
+const isBootstrapAdmin = (userId) => adminUserIds.has(userId);
+
+const clearAuthSession = async (user) => {
+  user.activeAuthTokenId = null;
+  user.authSessionExpiresAt = null;
+  await user.save();
+};
+
+const clearAuthSessionIfExpired = async (user) => {
+  if (
+    user.activeAuthTokenId &&
+    user.authSessionExpiresAt &&
+    user.authSessionExpiresAt.getTime() <= Date.now()
+  ) {
+    await clearAuthSession(user);
+  }
+};
+
+const verifyAdmin = (req, res, next) => {
+  if (!req.user?.isAdmin) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+};
+
+// ...all other route definitions...
+
 // Admin can disapprove (revoke approval) of any user
 router.post(
   '/admin/users/:userId/disapprove',
@@ -36,85 +81,12 @@ router.post(
     }
   }
 );
-const express = require('express');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const { validateInput } = require('../utils/validation');
-const { verifyApiKey } = require('../middleware');
-const crypto = require('crypto');
 
-const router = express.Router();
 const AUTH_TOKEN_LIFETIME_SECONDS = 3600;
 const AUTH_TOKEN_LIFETIME_MS = AUTH_TOKEN_LIFETIME_SECONDS * 1000;
+// ...existing code...
 
-const adminUserIds = new Set(
-  (process.env.ADMIN_USER_IDS || '')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean)
-);
-
-const isBootstrapAdmin = (userId) => adminUserIds.has(userId);
-
-const clearAuthSession = async (user) => {
-  user.activeAuthTokenId = null;
-  user.authSessionExpiresAt = null;
-  await user.save();
-};
-
-const clearAuthSessionIfExpired = async (user) => {
-  if (
-    user.activeAuthTokenId &&
-    user.authSessionExpiresAt &&
-    user.authSessionExpiresAt.getTime() <= Date.now()
-  ) {
-    await clearAuthSession(user);
-  }
-};
-
-const verifyAdmin = (req, res, next) => {
-  if (!req.user?.isAdmin) {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-
-  next();
-};
-
-// Middleware to verify JWT token
-const verifyToken = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing or invalid authorization header' });
-  }
-
-  const token = authHeader.substring(7);
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
-    const user = await User.findOne({ userId: decoded.userId });
-    if (!user) {
-      return res.status(401).json({ error: 'User not found' });
-    }
-
-    await clearAuthSessionIfExpired(user);
-
-    if (
-      !decoded.jti ||
-      user.activeAuthTokenId == null ||
-      user.authSessionExpiresAt == null ||
-      user.activeAuthTokenId !== decoded.jti
-    ) {
-      return res.status(401).json({ error: 'Session is no longer active' });
-    }
-
-    req.userId = decoded.userId;
-    req.sub = decoded.sub;
-    req.user = user;
-    next();
-  } catch (error) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
-  }
-};
+// ...removed local verifyToken, now using imported version...
 
 
 // Password requirements
@@ -367,70 +339,6 @@ router.post(
   }
 );
 
-// Start mock location session (only one per user)
-router.post('/start-mock-session', verifyToken, async (req, res, next) => {
-  try {
-    const user = await User.findOne({ userId: req.userId });
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Check if user already has an active session
-    if (user.activeSessionId) {
-      return res.status(409).json({
-        error: 'Another device is already using mock location for this user',
-        activeSessionId: user.activeSessionId,
-      });
-    }
-
-    // Generate unique session ID
-    const sessionId = crypto.randomUUID();
-
-    // Store session
-    user.activeSessionId = sessionId;
-    user.sessionStartTime = new Date();
-    await user.save();
-
-    return res.status(200).json({
-      sessionId,
-      message: 'Mock location session started',
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// End mock location session
-router.post('/end-mock-session', verifyToken, async (req, res, next) => {
-  try {
-    const { sessionId } = req.body;
-    if (!sessionId) {
-      return res.status(400).json({ error: 'sessionId is required' });
-    }
-
-    const user = await User.findOne({ userId: req.userId });
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Verify session ownership
-    if (user.activeSessionId !== sessionId) {
-      return res.status(403).json({
-        error: 'Session ID does not match current session',
-      });
-    }
-
-    // Clear session
-    user.activeSessionId = null;
-    user.sessionStartTime = null;
-    await user.save();
-
-    return res.status(200).json({
-      message: 'Mock location session ended',
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+// ...mock location session endpoints removed...
 
 module.exports = router;
