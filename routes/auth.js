@@ -195,9 +195,9 @@ router.post('/login', async (req, res, next) => {
     user.authSessionExpiresAt = expiresAt;
     await user.save();
 
-    // Generate JWT token with explicit algorithm
+    // Generate JWT token with explicit algorithm and isAdmin
     const token = jwt.sign(
-      { sub: user._id.toString(), userId: user.userId, jti: tokenId },
+      { sub: user._id.toString(), userId: user.userId, isAdmin: user.isAdmin, jti: tokenId },
       process.env.JWT_SECRET,
       { expiresIn: '1h', algorithm: 'HS256' }
     );
