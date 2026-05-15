@@ -187,14 +187,7 @@ router.post('/login', async (req, res, next) => {
       });
     }
 
-    await clearAuthSessionIfExpired(user);
-
-    if (user.activeAuthTokenId && user.authSessionExpiresAt) {
-      return res.status(409).json({
-        error: 'This account is already logged in on another device',
-      });
-    }
-
+    // Always invalidate any previous session and allow new login
     const tokenId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + AUTH_TOKEN_LIFETIME_MS);
 
