@@ -221,9 +221,10 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: 'Token required' });
     }
 
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
-    const user = await User.findOne({ userId: decoded.userId });
-    if (!user) {
+    const refreshUser = await User.findOne({ userId: decoded.userId });
+    if (!refreshUser) {
       return res.status(401).json({ error: 'User not found' });
     }
 
@@ -242,17 +243,18 @@ router.post('/refresh', async (req, res) => {
       }
 
 
+
     if (
       !decoded.jti ||
-      user.activeAuthTokenId == null ||
-      user.authSessionExpiresAt == null ||
-      user.activeAuthTokenId !== decoded.jti
+      refreshUser.activeAuthTokenId == null ||
+      refreshUser.authSessionExpiresAt == null ||
+      refreshUser.activeAuthTokenId !== decoded.jti
     ) {
       return res.status(401).json({ error: 'Session is no longer active' });
     }
 
-    user.authSessionExpiresAt = new Date(Date.now() + AUTH_TOKEN_LIFETIME_MS);
-    await user.save();
+    refreshUser.authSessionExpiresAt = new Date(Date.now() + AUTH_TOKEN_LIFETIME_MS);
+    await refreshUser.save();
 
     const newToken = jwt.sign(
       { sub: decoded.sub, userId: decoded.userId, jti: decoded.jti },
