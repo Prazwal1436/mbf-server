@@ -227,7 +227,20 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    await clearAuthSessionIfExpired(user);
+      const user = await User.findOne({ userId: sanitizedUserId });
+      if (!user) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      // Check for active session (single device enforcement)
+      if (
+        user.activeAuthTokenId &&
+        user.authSessionExpiresAt &&
+        user.authSessionExpiresAt.getTime() > Date.now()
+      ) {
+        return res.status(403).json({ error: 'Already logged in on another device.' });
+      }
+
 
     if (
       !decoded.jti ||
