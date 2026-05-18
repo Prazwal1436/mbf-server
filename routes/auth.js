@@ -1,14 +1,14 @@
+
+
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const { validateInput } = require('../utils/validation');
 const { verifyToken, verifyApiKey } = require('../middleware');
-const crypto = require('crypto');
+const { validateInput } = require('../utils/validation');
+const User = require('../models/User');
+const bcrypt = require('bcryptjs');
 
-// ...existing code...
 
+// --- Utility and Middleware Definitions (must be above all usages) ---
 const adminUserIds = new Set(
   (process.env.ADMIN_USER_IDS || '')
     .split(',')
@@ -40,6 +40,98 @@ const verifyAdmin = (req, res, next) => {
   }
   next();
 };
+
+// --- Route Definitions ---
+
+// Admin: Clear session for any user
+router.post(
+  '/admin/users/:userId/clear-session',
+  verifyToken,
+  verifyAdmin,
+  verifyApiKey,
+  async (req, res, next) => {
+    try {
+      const sanitizedUserId = validateInput(req.params.userId, 'userId');
+      if (!sanitizedUserId) {
+        return res.status(400).json({ error: 'Invalid userId format' });
+      }
+      const user = await User.findOne({ userId: sanitizedUserId });
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      user.activeAuthTokenId = null;
+      user.authSessionExpiresAt = null;
+      user.activeSessionId = null;
+      user.sessionStartTime = null;
+      await user.save();
+      return res.status(200).json({ message: 'Session cleared', userId: user.userId });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ...existing code...
+
+// Admin: Reset password for any user
+router.post(
+  '/admin/users/:userId/reset-password',
+  verifyToken,
+  verifyAdmin,
+  verifyApiKey,
+  async (req, res, next) => {
+    try {
+      const sanitizedUserId = validateInput(req.params.userId, 'userId');
+      const { newPassword } = req.body;
+      if (!sanitizedUserId || !newPassword) {
+        return res.status(400).json({ error: 'Invalid userId or password' });
+      }
+      // Password strength check (reuse from register)
+      const PASSWORD_MIN_LENGTH = 8;
+      const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+      if (newPassword.length < PASSWORD_MIN_LENGTH) {
+        return res.status(400).json({ error: `Password must be at least ${PASSWORD_MIN_LENGTH} characters` });
+      }
+      if (!PASSWORD_REGEX.test(newPassword)) {
+        return res.status(400).json({ error: 'Password must contain uppercase, lowercase, number, and special character' });
+      }
+      const user = await User.findOne({ userId: sanitizedUserId });
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const salt = await bcrypt.genSalt(12);
+      user.passwordHash = await bcrypt.hash(newPassword, salt);
+      await user.save();
+      return res.status(200).json({ message: 'Password reset successfully' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// Admin: Delete any user
+router.delete(
+  '/admin/users/:userId',
+  verifyToken,
+  verifyAdmin,
+  verifyApiKey,
+  async (req, res, next) => {
+    try {
+      const sanitizedUserId = validateInput(req.params.userId, 'userId');
+      if (!sanitizedUserId) {
+        return res.status(400).json({ error: 'Invalid userId format' });
+      }
+      const user = await User.findOneAndDelete({ userId: sanitizedUserId });
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      return res.status(200).json({ message: 'User deleted successfully' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 
 // ...all other route definitions...
 
@@ -299,11 +391,29 @@ router.get('/admin/users', verifyToken, verifyAdmin, verifyApiKey, async (req, r
     const users = await User.find(filter)
       .sort({ createdAt: -1 })
       .select(
-        'userId isAdmin isApproved approvedAt approvedByUserId createdAt updatedAt'
+        'userId isAdmin isApproved approvedAt approvedByUserId createdAt updatedAt activeAuthTokenId authSessionExpiresAt'
       )
       .lean();
 
-    return res.status(200).json({ users });
+    // Add 'active' field to each user (active if session exists and not expired, or session has no expiry)
+    const now = Date.now();
+    const usersWithActive = users.map(u => {
+      let active = false;
+      if (u.activeAuthTokenId) {
+        if (!u.authSessionExpiresAt) {
+          active = true;
+        } else {
+          const expires = new Date(u.authSessionExpiresAt).getTime();
+          active = expires > now;
+        }
+      }
+      // Remove session fields from response for privacy
+      delete u.activeAuthTokenId;
+      delete u.authSessionExpiresAt;
+      return { ...u, active };
+    });
+
+    return res.status(200).json({ users: usersWithActive });
   } catch (error) {
     next(error);
   }
