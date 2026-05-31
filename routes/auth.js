@@ -175,7 +175,7 @@ router.post(
   }
 );
 
-const AUTH_TOKEN_LIFETIME_SECONDS = 86400; // 24 hours
+const AUTH_TOKEN_LIFETIME_SECONDS = 3600; // 1 hour
 const AUTH_TOKEN_LIFETIME_MS = AUTH_TOKEN_LIFETIME_SECONDS * 1000;
 // ...existing code...
 
@@ -297,10 +297,11 @@ router.post('/login', async (req, res, next) => {
     await user.save();
 
     // Generate JWT token with explicit algorithm and isAdmin
+
     const token = jwt.sign(
       { sub: user._id.toString(), userId: user.userId, isAdmin: user.isAdmin, jti: tokenId },
       process.env.JWT_SECRET,
-      { expiresIn: '24h', algorithm: 'HS256' }
+      { expiresIn: '1h', algorithm: 'HS256' }
     );
 
     return res.status(200).json({
