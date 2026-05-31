@@ -280,7 +280,15 @@ router.post('/login', async (req, res, next) => {
       });
     }
 
-    // Always invalidate any previous session and allow new login
+    // Enforce single active session per user
+    if (
+      user.activeAuthTokenId &&
+      user.authSessionExpiresAt &&
+      user.authSessionExpiresAt.getTime() > Date.now()
+    ) {
+      return res.status(403).json({ error: 'User already has an active session. Please logout from other device first.' });
+    }
+
     const tokenId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + AUTH_TOKEN_LIFETIME_MS);
 

@@ -97,23 +97,45 @@ app.use((_, res) => {
 app.use(errorHandler);
 
 async function connectWithRetry(retries = 5, delay = 3000) {
+  const uriSrv = process.env.MONGODB_URI_SRV;
+  const uri = process.env.MONGODB_URI;
+  let lastError = null;
   for (let i = 0; i < retries; i++) {
-    try {
-      await mongoose.connect(process.env.MONGODB_URI, {
-        retryWrites: true,
-        w: 'majority',
-      });
-      console.log('Connected to MongoDB');
-      return;
-    } catch (error) {
-      console.error(`\n✗ MongoDB connection failed (attempt ${i + 1}/${retries}):`, error.message);
-      if (i < retries - 1) {
-        console.log(`Retrying in ${delay / 1000} seconds...`);
-        await new Promise((res) => setTimeout(res, delay));
-      } else {
-        console.error('✗ Could not connect to MongoDB after multiple attempts. Exiting.');
-        process.exit(1);
+    // Try SRV first if available
+    if (uriSrv) {
+      try {
+        await mongoose.connect(uriSrv, {
+          retryWrites: true,
+          w: 'majority',
+        });
+        console.log('Connected to MongoDB (SRV URI)');
+        return;
+      } catch (error) {
+        lastError = error;
+        console.error(`\n✗ MongoDB SRV connection failed (attempt ${i + 1}/${retries}):`, error.message);
       }
+    }
+    // Try standard URI if SRV fails or not set
+    if (uri) {
+      try {
+        await mongoose.connect(uri, {
+          retryWrites: true,
+          w: 'majority',
+        });
+        console.log('Connected to MongoDB (standard URI)');
+        return;
+      } catch (error) {
+        lastError = error;
+        console.error(`\n✗ MongoDB standard connection failed (attempt ${i + 1}/${retries}):`, error.message);
+      }
+    }
+    if (i < retries - 1) {
+      console.log(`Retrying in ${delay / 1000} seconds...`);
+      await new Promise((res) => setTimeout(res, delay));
+    } else {
+      console.error('✗ Could not connect to MongoDB after multiple attempts. Exiting.');
+      if (lastError) console.error(lastError);
+      process.exit(1);
     }
   }
 }
