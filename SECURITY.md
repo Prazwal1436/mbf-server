@@ -27,7 +27,7 @@
 - Bcrypt salt rounds: 12 (increased from default)
 
 ### 6. **JWT Security**
-- Token expiry: 1 hour (was 7 days)
+- Token expiry: 40 minutes (was 7 days)
 - Explicit algorithm: HS256 (prevents algorithm confusion attacks)
 - Structured token payload with clear claims
 - Added token refresh endpoint
@@ -119,7 +119,7 @@ Response:
 {
   "token": "eyJhbGc...",
   "userId": "john_doe",
-  "expiresIn": 3600
+  "expiresIn": 2400
 }
 ```
 

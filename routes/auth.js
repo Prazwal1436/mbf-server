@@ -175,7 +175,7 @@ router.post(
   }
 );
 
-const AUTH_TOKEN_LIFETIME_SECONDS = 3600; // 1 hour
+const AUTH_TOKEN_LIFETIME_SECONDS = 2400; // 40 minutes
 const AUTH_TOKEN_LIFETIME_MS = AUTH_TOKEN_LIFETIME_SECONDS * 1000;
 // ...existing code...
 
@@ -301,7 +301,7 @@ router.post('/login', async (req, res, next) => {
     const token = jwt.sign(
       { sub: user._id.toString(), userId: user.userId, isAdmin: user.isAdmin, jti: tokenId },
       process.env.JWT_SECRET,
-      { expiresIn: '1h', algorithm: 'HS256' }
+      { expiresIn: '40m', algorithm: 'HS256' }
     );
 
     return res.status(200).json({
@@ -361,7 +361,7 @@ router.post('/refresh', async (req, res) => {
     const newToken = jwt.sign(
       { sub: decoded.sub, userId: decoded.userId, jti: decoded.jti },
       process.env.JWT_SECRET,
-      { expiresIn: '1h', algorithm: 'HS256' }
+      { expiresIn: '40m', algorithm: 'HS256' }
     );
 
     return res.json({ token: newToken, expiresIn: AUTH_TOKEN_LIFETIME_SECONDS });
