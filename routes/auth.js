@@ -157,6 +157,10 @@ router.post(
       user.isApproved = false;
       user.approvedAt = null;
       user.approvedByUserId = req.user.userId;
+      user.activeAuthTokenId = null;
+      user.authSessionExpiresAt = null;
+      user.activeSessionId = null;
+      user.sessionStartTime = null;
       await user.save();
 
       return res.status(200).json({
@@ -175,8 +179,6 @@ router.post(
   }
 );
 
-const AUTH_TOKEN_LIFETIME_SECONDS = 2400; // 40 minutes
-const AUTH_TOKEN_LIFETIME_MS = AUTH_TOKEN_LIFETIME_SECONDS * 1000;
 // ...existing code...
 
 // ...removed local verifyToken, now using imported version...
@@ -280,20 +282,15 @@ router.post('/login', async (req, res, next) => {
       });
     }
 
-    // Enforce single active session per user
-    if (
-      user.activeAuthTokenId &&
-      user.authSessionExpiresAt &&
-      user.authSessionExpiresAt.getTime() > Date.now()
-    ) {
+    // Enforce single active session per user until explicit logout/admin clear
+    if (user.activeAuthTokenId) {
       return res.status(403).json({ error: 'User already has an active session. Please logout from other device first.' });
     }
 
     const tokenId = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + AUTH_TOKEN_LIFETIME_MS);
 
     user.activeAuthTokenId = tokenId;
-    user.authSessionExpiresAt = expiresAt;
+    user.authSessionExpiresAt = null;
     await user.save();
 
     // Generate JWT token with explicit algorithm and isAdmin
@@ -301,14 +298,13 @@ router.post('/login', async (req, res, next) => {
     const token = jwt.sign(
       { sub: user._id.toString(), userId: user.userId, isAdmin: user.isAdmin, jti: tokenId },
       process.env.JWT_SECRET,
-      { expiresIn: '40m', algorithm: 'HS256' }
+      { algorithm: 'HS256' }
     );
 
     return res.status(200).json({
       token,
       userId: user.userId,
       isAdmin: user.isAdmin,
-      expiresIn: AUTH_TOKEN_LIFETIME_SECONDS,
     });
   } catch (error) {
     next(error);
@@ -323,60 +319,85 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: 'Token required' });
     }
 
-
     const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
     const refreshUser = await User.findOne({ userId: decoded.userId });
     if (!refreshUser) {
       return res.status(401).json({ error: 'User not found' });
     }
 
-      const user = await User.findOne({ userId: sanitizedUserId });
-      if (!user) {
-        return res.status(401).json({ error: 'Invalid credentials' });
-      }
-
-      // Check for active session (single device enforcement)
-      if (
-        user.activeAuthTokenId &&
-        user.authSessionExpiresAt &&
-        user.authSessionExpiresAt.getTime() > Date.now()
-      ) {
-        return res.status(403).json({ error: 'Already logged in on another device.' });
-      }
-
-
-
     if (
       !decoded.jti ||
       refreshUser.activeAuthTokenId == null ||
-      refreshUser.authSessionExpiresAt == null ||
       refreshUser.activeAuthTokenId !== decoded.jti
     ) {
       return res.status(401).json({ error: 'Session is no longer active' });
     }
 
-    refreshUser.authSessionExpiresAt = new Date(Date.now() + AUTH_TOKEN_LIFETIME_MS);
-    await refreshUser.save();
-
     const newToken = jwt.sign(
-      { sub: decoded.sub, userId: decoded.userId, jti: decoded.jti },
+      {
+        sub: refreshUser._id.toString(),
+        userId: refreshUser.userId,
+        isAdmin: refreshUser.isAdmin,
+        jti: decoded.jti,
+      },
       process.env.JWT_SECRET,
-      { expiresIn: '40m', algorithm: 'HS256' }
+      { algorithm: 'HS256' }
     );
 
-    return res.json({ token: newToken, expiresIn: AUTH_TOKEN_LIFETIME_SECONDS });
+    return res.json({ token: newToken });
   } catch (error) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 });
 
+router.get('/validate', verifyToken, async (req, res, next) => {
+  try {
+    const userId = req.user?.userId;
+    const tokenId = req.user?.jti;
+
+    if (!userId || !tokenId) {
+      return res.status(401).json({ error: 'Invalid token payload' });
+    }
+
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    if (!user.isApproved) {
+      return res.status(401).json({ error: 'User is not approved' });
+    }
+
+    if (
+      !user.activeAuthTokenId ||
+      user.activeAuthTokenId !== tokenId
+    ) {
+      return res.status(401).json({ error: 'Session is no longer active' });
+    }
+
+    return res.status(200).json({
+      valid: true,
+      userId: user.userId,
+      isAdmin: user.isAdmin,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post('/logout', verifyToken, async (req, res, next) => {
   try {
-    req.user.activeSessionId = null;
-    req.user.sessionStartTime = null;
-    req.user.activeAuthTokenId = null;
-    req.user.authSessionExpiresAt = null;
-    await req.user.save();
+    const userId = req.user?.userId;
+    if (userId) {
+      const user = await User.findOne({ userId });
+      if (user) {
+        user.activeSessionId = null;
+        user.sessionStartTime = null;
+        user.activeAuthTokenId = null;
+        user.authSessionExpiresAt = null;
+        await user.save();
+      }
+    }
 
     return res.status(200).json({
       message: 'Logged out successfully',
