@@ -15,7 +15,7 @@ const nodeEnv = process.env.NODE_ENV || 'development';
 
 
 // Validate environment variables
-const requiredEnvVars = ['MONGODB_URI', 'JWT_SECRET', 'ADMIN_API_KEY', 'ALLOWED_ORIGINS'];
+const requiredEnvVars = ['MONGODB_URI', 'JWT_SECRET', 'ADMIN_API_KEY'];
 const missingVars = requiredEnvVars.filter((v) => !process.env[v]);
 if (missingVars.length > 0) {
   console.error(`\n✗ Missing required env vars: ${missingVars.join(', ')}`);
@@ -29,6 +29,11 @@ if (process.env.JWT_SECRET.length < 32) {
 if (process.env.ADMIN_API_KEY.length < 12) {
   console.warn('Warning: ADMIN_API_KEY is too short. Use at least 12 characters.');
 }
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 if (!process.env.ALLOWED_ORIGINS) {
   console.warn('Warning: ALLOWED_ORIGINS is not set. Defaulting to http://localhost:3000');
 }
@@ -39,8 +44,7 @@ app.use(helmet());
 // CORS configuration (allow all headers and log for debugging)
 const corsOptions = {
   origin: (origin, callback) => {
-    const allowed = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000').split(',');
-    if (!origin || allowed.includes(origin)) {
+    if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       console.warn(`Blocked CORS request from: ${origin}`);

@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { verifyToken, verifyApiKey } = require('../middleware');
 const { validateInput } = require('../utils/validation');
 const User = require('../models/User');
@@ -40,6 +41,28 @@ const verifyAdmin = (req, res, next) => {
     return res.status(403).json({ error: 'Admin access required' });
   }
   next();
+};
+
+const allowBootstrapOrAdmin = async (req, res, next) => {
+  try {
+    const sanitizedUserId = validateInput(req.body?.userId, 'userId');
+    const hasUsers = await User.exists({});
+    const isBootstrapRegistration =
+      !hasUsers && sanitizedUserId && isBootstrapAdmin(sanitizedUserId);
+
+    if (isBootstrapRegistration) {
+      return verifyApiKey(req, res, () => {
+        req.isBootstrapRegistration = true;
+        next();
+      });
+    }
+
+    return verifyToken(req, res, () =>
+      verifyAdmin(req, res, () => verifyApiKey(req, res, next))
+    );
+  } catch (error) {
+    return next(error);
+  }
 };
 
 // --- Route Definitions ---
@@ -188,9 +211,9 @@ router.post(
 const PASSWORD_MIN_LENGTH = 8;
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
 
-router.post('/register', async (req, res, next) => {
+router.post('/register', allowBootstrapOrAdmin, async (req, res, next) => {
   try {
-    const { userId, password } = req.body;
+    const { userId, password, isAdmin } = req.body;
 
     // Input validation
     if (!userId || !password) {
@@ -226,22 +249,25 @@ router.post('/register', async (req, res, next) => {
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    // Create user
-    const bootstrapAdmin = isBootstrapAdmin(sanitizedUserId);
+    const isBootstrapRegistration = Boolean(req.isBootstrapRegistration);
+
+    // Admin-managed creation: creator decides whether target account is admin.
+    const shouldBeAdmin = isBootstrapRegistration
+      ? true
+      : Boolean(isAdmin) || isBootstrapAdmin(sanitizedUserId);
     const user = await User.create({
       userId: sanitizedUserId,
       passwordHash,
-      isAdmin: bootstrapAdmin,
-      isApproved: bootstrapAdmin,
-      approvedAt: bootstrapAdmin ? new Date() : null,
-      approvedByUserId: bootstrapAdmin ? sanitizedUserId : null,
+      isAdmin: shouldBeAdmin,
+      isApproved: true,
+      approvedAt: new Date(),
+      approvedByUserId: req.user?.userId || sanitizedUserId,
     });
 
     return res.status(201).json({
-      message: bootstrapAdmin
-        ? 'Admin account created successfully'
-        : 'Account created successfully. Awaiting admin approval.',
+      message: shouldBeAdmin ? 'Admin account created successfully' : 'User account created successfully',
       userId: user.userId,
+      isAdmin: user.isAdmin,
       isApproved: user.isApproved,
     });
   } catch (error) {

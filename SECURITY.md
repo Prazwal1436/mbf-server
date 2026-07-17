@@ -98,11 +98,20 @@ Example: `SecurePass123!`
 ## API Endpoints
 
 ### POST /auth/register
-Register a new user
+Create a new user (admin-only)
+
+Required headers:
+- `Authorization: Bearer <admin_jwt>`
+- `x-api-key: <ADMIN_API_KEY>`
+
+One-time bootstrap exception:
+- Allowed without JWT only when there are no users in the database yet, the `userId` is listed in `ADMIN_USER_IDS`, and `x-api-key` is provided.
+
 ```json
 {
   "userId": "john_doe",
-  "password": "SecurePass123!"
+  "password": "SecurePass123!",
+  "isAdmin": false
 }
 ```
 
